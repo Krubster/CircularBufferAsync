@@ -190,8 +190,7 @@ void Write()
                 {
                     for (int j = 0; j < writtenOut; ++j)
                     {
-                        int l = 0;
-                        ReadState state = outBuffer.TryRead(ref bufferReader, ref l);
+                        ReadState state = outBuffer.TryRead(ref bufferReader, out int l);
                         if (state == ReadState.Success)
                         {
                             // simulating out sending
@@ -243,8 +242,7 @@ void Read()
         {
             for (int i = 0; i < written; ++i)
             {
-                int length = 0;
-                ReadState state = cBuffer.TryRead(ref buffer, ref length);
+                ReadState state = cBuffer.TryRead(ref buffer, out int length);
                 if (state == ReadState.Success)
                 {
                     Thread.SpinWait(length); // simulating packet processing
