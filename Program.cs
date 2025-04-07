@@ -12,7 +12,7 @@ AsyncBytePoolCircularBuffer outPoolBuffer = new AsyncBytePoolCircularBuffer(6553
 
 Random random = new Random();
 Console.WriteLine("Preparing IN stream...");
-byte[] inputNetworkBuffer = new byte[1024 * 1024 * 2]; // 1mb data
+byte[] inputNetworkBuffer = new byte[1024 * 1024 * 32]; // 32mb data, both sybc and async have almost equal speed
 int _bytesWritten = 0;
 byte[] buffer = new byte[1024 * 4 * 4];
 byte[] bufferReader = new byte[1024 * 4 * 4];
@@ -59,6 +59,7 @@ int preGeneratedOutIndex = 0;
 bool readFinished = false;
 bool writeFinished = false;
 
+long threadsStarted = Stopwatch.GetTimestamp();
 Thread writerThread = new Thread(Write);
 writerThread.Name = "Write Thread";
 writerThread.Start();
@@ -68,6 +69,9 @@ readerThread.Name = "Read Thread";
 readerThread.Start();
 
 readerThread.Join(); // wait until previous threads finish
+long threadsEnded = Stopwatch.GetTimestamp();
+Console.WriteLine($"[THREAD RUN TIME]: threads finished in {((double)threadsEnded - (double)threadsStarted) / 10000000.0} seconds");
+
 Console.WriteLine($"[BUFFER STATS]: cBuffer.Rounds = {cBuffer.Rounds}, outBuffer.Rounds = {outBuffer.Rounds}");
 
 /*readFinished = false;
@@ -84,10 +88,14 @@ Console.WriteLine($"[BUFFER STATS]: cPoolBuffer.Rounds = {cPoolBuffer.Rounds}, o
 preGeneratedOutIndex = 0;
 preGeneratedIndex = 0;
 
+threadsStarted = Stopwatch.GetTimestamp();
 Thread singleThread = new Thread(Work);
 singleThread.Name = "Read\\Write Thread";
 singleThread.Start();
 singleThread.Join();
+readerThread.Join(); // wait until previous threads finish
+threadsEnded = Stopwatch.GetTimestamp();
+Console.WriteLine($"[THREAD RUN TIME]: thread finished in {((double)threadsEnded - (double)threadsStarted) / 10000000.0} seconds");
 
 Console.ReadKey();
 
@@ -130,8 +138,8 @@ void Work()
     long ticks = end - start;
     double speed = (double)processed / (double)ticks;
     double wspeed = (double)writtenOut / (double)ticks;
-    Console.WriteLine($"[SINGLE THREAD]: Processed packets: {processed}, ticks: {ticks}, P\\T: {speed:0.###}");
-    Console.WriteLine($"[SINGLE THREAD]: WrittenOut packets: {writtenOut}, ticks: {ticks}, P\\T: {wspeed:0.###}");
+    Console.WriteLine($"[SINGLE THREAD]: Processed packets: {processed}, ticks: {ticks}, P\\T: {speed:0.###}, mb\\s: {((double)inputNetworkBuffer.Length / (double)ticks * 10000000.0 / 1024.0 / 1024.0):0.###}");
+    Console.WriteLine($"[SINGLE THREAD]: WrittenOut packets: {writtenOut}, ticks: {ticks}, P\\T: {wspeed:0.###}, mb\\s: {((double)inputNetworkBuffer.Length / (double)ticks * 10000000.0 / 1024.0 / 1024.0):0.###}");
 }
 
 void Write()
@@ -208,8 +216,8 @@ void Write()
     long ticks = end - start;
     double speed = ((double)written) / (double)ticks;
     double ospeed = ((double)processed) / (double)ticks;
-    Console.WriteLine($"[WRITE THREAD]: Processed packets: {written}, ticks: {ticks}, P\\T: {speed:0.###}");
-    Console.WriteLine($"[WRITE THREAD]: WrittenIn packets: {processed}, ticks: {ticks}, P\\T: {ospeed:0.###}");
+    Console.WriteLine($"[WRITE THREAD]: Processed packets: {written}, ticks: {ticks}, P\\T: {speed:0.###}, mb\\s: {((double)inputNetworkBuffer.Length / (double)ticks * 10000000.0 / 1024.0 / 1024.0):0.###}");
+    Console.WriteLine($"[WRITE THREAD]: WrittenIn packets: {processed}, ticks: {ticks}, P\\T: {ospeed:0.###}, mb\\s: {((double)inputNetworkBuffer.Length / (double)ticks * 10000000.0 / 1024.0 / 1024.0):0.###}");
 }
 
 void Read()
@@ -275,8 +283,8 @@ void Read()
     long ticks = end - start;
     double speed = ((double)processed) / (double)ticks;
     double wspeed = ((double)writtenOut) / (double)ticks;
-    Console.WriteLine($"[READ THREAD]: ProcessedIn packets: {processed}, ticks: {ticks}, P\\T: {speed:0.###}");
-    Console.WriteLine($"[READ THREAD]: WrittenOut packets: {writtenOut},  ticks: {ticks}, P\\T: {wspeed:0.###}");
+    Console.WriteLine($"[READ THREAD]: ProcessedIn packets: {processed}, ticks: {ticks}, P\\T: {speed:0.###}, mb\\s: {((double)inputNetworkBuffer.Length / (double)ticks * 10000000.0 / 1024.0 / 1024.0):0.###}");
+    Console.WriteLine($"[READ THREAD]: WrittenOut packets: {writtenOut},  ticks: {ticks}, P\\T: {wspeed:0.###}, mb\\s: {((double)inputNetworkBuffer.Length / (double)ticks * 10000000.0 / 1024.0 / 1024.0):0.###}");
 }
 
 void WritePool()
