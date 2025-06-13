@@ -1,0 +1,8 @@
+{
+  "profiles": {
+    "BenchmarkRunner": {
+      "commandName": "Project",
+      "commandLineArgs": "--server=\"I:\\Repos\\Krubster\\TcpWorkloadServer\\bin\\Debug\\net8.0\\TcpWorkloadServer.exe\" --client=\"I:\\Repos\\Krubster\\TcpLoadClient\\bin\\Debug\\net8.0\\TcpLoadClient.exe\""
+    }
+  }
+}

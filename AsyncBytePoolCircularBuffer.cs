@@ -1,4 +1,7 @@
-﻿namespace CircularBufferAsync
+﻿
+using CircularBufferAsync.Buffers;
+
+namespace CircularBufferAsync
 {
     public class AsyncBytePoolCircularBuffer
     {

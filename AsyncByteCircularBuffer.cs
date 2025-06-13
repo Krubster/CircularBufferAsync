@@ -1,169 +1,148 @@
-﻿using System;
-using System.Buffers;
-using System.Collections.Generic;
-using System.Linq;
-using System.Reflection;
-using System.Runtime.CompilerServices;
-using System.Text;
-using System.Threading.Tasks;
-using static System.Runtime.InteropServices.JavaScript.JSType;
+﻿using System.Buffers.Binary;
 
-namespace CircularBufferAsync
+namespace CircularBufferAsync.Buffers
 {
-    public class AsyncByteCircularBuffer
+    public class CircularBuffer
     {
-        private object _FPLockObject = new object();
-        private int _FirstPosition = 0;
+        private readonly byte[] _buffer;
+        private int _head;
+        private int _tail;
+        private bool _wrapped;
 
-        private int _Written = 0;
-        private object _LockObject = new object();
-
-        public int Written => _Written;
-        private int _Rounds = 0;
-        public int Rounds => _Rounds;
-        private byte[] _Buffer;
-        private MemoryPointer[] _MemoryPointers;
-        private int _FirstPointer = 0;
-        private int _LastPointer = 0;
-
-        public AsyncByteCircularBuffer(int bufferSize)
+        public CircularBuffer(int size = 65536)
         {
-            bufferSize = (bufferSize / 2) * 2; // making sure it is power of two
-            _Buffer = new byte[bufferSize];
-            _MemoryPointers = new MemoryPointer[bufferSize / 2];
-            for (int i = 0; i < _MemoryPointers.Length; ++i)
-            {
-                _MemoryPointers[i] = new MemoryPointer();
-            }
+            _buffer = new byte[size];
+            _head = 0;
+            _tail = 0;
+            _wrapped = false;
         }
 
-        public WriteState Write(Span<byte> data)
+        public bool Write(ReadOnlySpan<byte> packet)
         {
-            MemoryPointer ptrLast = _MemoryPointers[_LastPointer];
-            if (ptrLast.m_State == 1) // if everything is written 
-            {
-                // Log buffer overflow
-                return WriteState.NoSpace;
-            }
+            if (packet.Length > ushort.MaxValue)
+                return false;
 
-            Span<byte> bufferSpan = new Span<byte>(_Buffer);
-            int pStartIndex = 0;
-            int dataLength = data.Length;
-            int bufferLength = _Buffer.Length;
-            if (dataLength + ptrLast.m_End < bufferLength)
-            {
-                data.CopyTo(bufferSpan.Slice(ptrLast.m_End, dataLength));
-                pStartIndex = ptrLast.m_End;
-            }
-            else
-            {
-                if (ptrLast.m_End > bufferLength) // last entry has ending point at left side of buffer
-                {
-                    int startIndex = ptrLast.m_End - bufferLength;
-                    int endIndex = dataLength + startIndex;
+            int totalLength = packet.Length + 2;
+            if (FreeSpace < totalLength)
+                return false;
 
-                    if (endIndex > _FirstPosition) // while we have less available space than left for writing
-                    {
-                        // Log buffer overflow
-                        return WriteState.NoSpace;
-                    }
+            Span<byte> header = stackalloc byte[2];
+            BinaryPrimitives.WriteUInt16LittleEndian(header, (ushort)packet.Length);
 
-                    pStartIndex = startIndex;
-                    data.CopyTo(bufferSpan.Slice(startIndex, dataLength));
-                    _Rounds++;
-                }
-                else
-                {
-                    int leftover = dataLength + ptrLast.m_End - bufferLength;
+            WriteBytes(header);
+            WriteBytes(packet);
 
-                    if (leftover > _FirstPosition) // while we have less available space than left for writing
-                    {
-                        // Log buffer overflow
-                        return WriteState.NoSpace;
-                    }
-
-                    pStartIndex = ptrLast.m_End;
-                    int firstPart = dataLength - leftover;
-                    data.Slice(0, firstPart).CopyTo(bufferSpan.Slice(ptrLast.m_End, firstPart));
-                    data.Slice(dataLength - leftover, leftover)
-                        .CopyTo(bufferSpan.Slice(0, leftover)); // copying at the start of buffer
-                    _Rounds++;
-                }
-            }
-            // moving to next data pointer
-            _LastPointer = (_LastPointer + 1) % _MemoryPointers.Length; // advance pointer to right
-
-            ptrLast.m_Start = pStartIndex;
-            ptrLast.m_Length = dataLength;
-            ptrLast.m_End = ptrLast.m_Start + ptrLast.m_Length;
-            ptrLast.m_State = 1;
-            lock (_LockObject)
-                _Written++;
-            return WriteState.Success;
+            return true;
         }
 
-        public ReadState TryRead(ref byte[] memory, out int length)
+        public ReadState Read(ref byte[] buffer, out int length)
         {
-            MemoryPointer ptrFirst = _MemoryPointers[_FirstPointer];
-
             length = 0;
-            lock (_LockObject)
-            {
-                if (_Written == 0)
-                {
-                    return ReadState.NoData;
-                }
-            }
-            Span<byte> bufferSpan = new Span<byte>(_Buffer);
-            Span<byte> span = new Span<byte>(memory);
-            length = ptrFirst.m_Length;
-            int bufferLength = _Buffer.Length;
+            if (AvailableBytes < 2)
+                return ReadState.NoData;
 
-            if (ptrFirst.m_End < bufferLength) // if we reading solid data without splitting
-            {
-                bufferSpan.Slice(ptrFirst.m_Start, ptrFirst.m_Length).CopyTo(span);
-            }
-            else
-            {
-                int left = ptrFirst.m_End - bufferLength;
-                int firstPart = ptrFirst.m_Length - left;
-                bufferSpan.Slice(ptrFirst.m_Start, firstPart).CopyTo(span.Slice(0, firstPart));
-                bufferSpan.Slice(0, left).CopyTo(span.Slice(firstPart, left));
-            }
-            lock (_FPLockObject)
-            {
-                _FirstPosition = (_FirstPosition + ptrFirst.m_Length) % bufferLength;
-            }
+            ushort packetLen = PeekUShort();
+            if (AvailableBytes < 2 + packetLen)
+                return ReadState.NoData;
 
-            _FirstPointer = (_FirstPointer + 1) % _MemoryPointers.Length; // advance first to right
-            ptrFirst.m_State = 0; // unlocking thread by changing state
-            
-            lock (_LockObject)
-                _Written--;
+            if (buffer.Length < packetLen)
+                return ReadState.InsufficientBuffer;
 
+            Advance(2); // Skip length
+            ReadBytes(buffer.AsSpan(0, packetLen));
+            length = packetLen;
             return ReadState.Success;
         }
-        private class MemoryPointer
-        {
-            public int m_Start = 0;
-            public int m_Length = 0;
-            public byte m_State  = 0; // 0 - read, 1 - written
-            public int m_End = 0;
 
-            public MemoryPointer()
+        private ushort PeekUShort()
+        {
+            if (_head + 1 < _buffer.Length)
+                return BinaryPrimitives.ReadUInt16LittleEndian(_buffer.AsSpan(_head, 2));
+
+            // Cross-boundary read
+            Span<byte> tmp = stackalloc byte[2];
+            tmp[0] = _buffer[_head];
+            tmp[1] = _buffer[0];
+            return BinaryPrimitives.ReadUInt16LittleEndian(tmp);
+        }
+
+        private void Advance(int count)
+        {
+            _head = (_head + count) % _buffer.Length;
+            if (_tail == _head)
+                _wrapped = false;
+        }
+
+        private void WriteBytes(ReadOnlySpan<byte> data)
+        {
+            int spaceEnd = _buffer.Length - _tail;
+
+            if (data.Length <= spaceEnd)
             {
+                data.CopyTo(_buffer.AsSpan(_tail));
+            }
+            else
+            {
+                data.Slice(0, spaceEnd).CopyTo(_buffer.AsSpan(_tail));
+                data.Slice(spaceEnd).CopyTo(_buffer);
             }
 
+            _tail = (_tail + data.Length) % _buffer.Length;
+            if (_tail == _head)
+                _wrapped = true;
+        }
+
+        private void ReadBytes(Span<byte> dest)
+        {
+            int spaceEnd = _buffer.Length - _head;
+
+            if (dest.Length <= spaceEnd)
+            {
+                _buffer.AsSpan(_head, dest.Length).CopyTo(dest);
+            }
+            else
+            {
+                _buffer.AsSpan(_head, spaceEnd).CopyTo(dest);
+                _buffer.AsSpan(0, dest.Length - spaceEnd).CopyTo(dest.Slice(spaceEnd));
+            }
+
+            _head = (_head + dest.Length) % _buffer.Length;
+            if (_tail == _head)
+                _wrapped = false;
+        }
+
+        private int FreeSpace
+        {
+            get
+            {
+                if (_wrapped)
+                    return _head - _tail - 1 < 0 ? _buffer.Length + _head - _tail - 1 : _head - _tail - 1;
+
+                return _head <= _tail
+                    ? _buffer.Length - (_tail - _head) - 1
+                    : _head - _tail - 1;
+            }
+        }
+
+        private int AvailableBytes
+        {
+            get
+            {
+                if (_tail == _head && !_wrapped)
+                    return 0;
+
+                if (_tail >= _head)
+                    return _tail - _head;
+
+                return _buffer.Length - _head + _tail;
+            }
         }
     }
-    public enum WriteState : byte
-    {
-        Success = 0,
-        NoSpace = 1
-    }
-    public enum ReadState : byte
-    {
-        Success = 0,
-        NoData = 1
-    }
+}
+
+
+public enum WriteState : byte
+{
+    Success = 0,
+    NoSpace = 1
 }

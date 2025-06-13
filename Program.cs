@@ -2,6 +2,7 @@
 using System;
 using System.Buffers;
 using System.Diagnostics;
+using System.Reflection.PortableExecutable;
 using System.Xml.Linq;
 
 AsyncByteCircularBuffer cBuffer = new AsyncByteCircularBuffer(65536 * 4 * 4);
@@ -10,9 +11,12 @@ AsyncByteCircularBuffer outBuffer = new AsyncByteCircularBuffer(65536 * 4 * 4);
 AsyncBytePoolCircularBuffer cPoolBuffer = new AsyncBytePoolCircularBuffer(65536 * 4 * 4);
 AsyncBytePoolCircularBuffer outPoolBuffer = new AsyncBytePoolCircularBuffer(65536 * 4 * 4);
 
+PagingBuffer cPagingBuffer = new PagingBuffer(65536, 2);
+PagingBuffer outPagingBuffer = new PagingBuffer(65536, 2);
+
 Random random = new Random();
 Console.WriteLine("Preparing IN stream...");
-byte[] inputNetworkBuffer = new byte[1024 * 1024 * 32]; // 32mb data, both sybc and async have almost equal speed
+byte[] inputNetworkBuffer = new byte[1024 * 1024 * 128];
 int _bytesWritten = 0;
 byte[] buffer = new byte[1024 * 4 * 4];
 byte[] bufferReader = new byte[1024 * 4 * 4];
@@ -46,12 +50,13 @@ for (int i = 0; i < preGenerated.Length; ++i)
 }
 
 int preGeneratedIndex = 0;
+int preGeneratedIndexRT = 0;
 
 int preGeneratedOutLength = 10000;
-int[] preGeneratedOut = new int[preGeneratedOutLength];
+byte[] preGeneratedOut = new byte[preGeneratedOutLength];
 for (int i = 0; i < preGeneratedOut.Length; ++i)
 {
-    preGeneratedOut[i] = random.Next(10, 400);
+    preGeneratedOut[i] = (byte)random.Next(10, 255);
 }
 
 int preGeneratedOutIndex = 0;
@@ -60,7 +65,19 @@ bool readFinished = false;
 bool writeFinished = false;
 
 long threadsStarted = Stopwatch.GetTimestamp();
-Thread writerThread = new Thread(Write);
+Thread writerThread = new Thread(WritePaging);
+writerThread.Name = "Paging Write Thread";
+writerThread.Start();
+
+Thread readerThread = new Thread(ReadPaging);
+readerThread.Name = "Paging Read Thread";
+readerThread.Start();
+
+readerThread.Join(); // wait until previous threads finish
+long threadsEnded = Stopwatch.GetTimestamp();
+Console.WriteLine($"[THREAD RUN TIME]: threads finished in {((double)threadsEnded - (double)threadsStarted) / 10000000.0} seconds");
+
+/*Thread writerThread = new Thread(Write);
 writerThread.Name = "Write Thread";
 writerThread.Start();
 
@@ -69,11 +86,11 @@ readerThread.Name = "Read Thread";
 readerThread.Start();
 
 readerThread.Join(); // wait until previous threads finish
-long threadsEnded = Stopwatch.GetTimestamp();
+threadsEnded = Stopwatch.GetTimestamp();
 Console.WriteLine($"[THREAD RUN TIME]: threads finished in {((double)threadsEnded - (double)threadsStarted) / 10000000.0} seconds");
 
 Console.WriteLine($"[BUFFER STATS]: cBuffer.Rounds = {cBuffer.Rounds}, outBuffer.Rounds = {outBuffer.Rounds}");
-
+*/
 /*readFinished = false;
 writeFinished = false;
 writerThread = new Thread(WritePool);
@@ -93,7 +110,6 @@ Thread singleThread = new Thread(Work);
 singleThread.Name = "Read\\Write Thread";
 singleThread.Start();
 singleThread.Join();
-readerThread.Join(); // wait until previous threads finish
 threadsEnded = Stopwatch.GetTimestamp();
 Console.WriteLine($"[THREAD RUN TIME]: thread finished in {((double)threadsEnded - (double)threadsStarted) / 10000000.0} seconds");
 
@@ -108,6 +124,7 @@ void Work()
     int pipeLength = 0;
     int bytesRead = 0;
     long msLength = msIn.Length;
+    byte[] outPacketBuffer = new byte[65536];
     using (BinaryReader reader = new BinaryReader(msIn))
     {
         while (bytesRead != msLength)
@@ -127,6 +144,7 @@ void Work()
                 // simulating packet out writing
                 pipeLength = preGeneratedOut[preGeneratedOutIndex];
                 preGeneratedOutIndex = (++preGeneratedOutIndex) % preGeneratedOutLength;
+                new Span<byte>(outPacketBuffer).Slice(0, pipeLength + 1);
                 Thread.SpinWait(pipeLength); // simulating packet processing
 
                 writtenOut++;
@@ -142,12 +160,122 @@ void Work()
     Console.WriteLine($"[SINGLE THREAD]: WrittenOut packets: {writtenOut}, ticks: {ticks}, P\\T: {wspeed:0.###}, mb\\s: {((double)inputNetworkBuffer.Length / (double)ticks * 10000000.0 / 1024.0 / 1024.0):0.###}");
 }
 
+void WritePaging()
+{
+    Console.WriteLine("[WRITE THREAD]: Started thread worker");
+    long written = 0, processed = 0;
+    msIn = new MemoryStream(inputNetworkBuffer);
+    int bytesRead = 0;
+    long msLength = msIn.Length;
+    byte[] outBuffer = new byte[65536];
+    long start = Stopwatch.GetTimestamp();
+    using (BinaryReader reader = new BinaryReader(msIn))
+    {
+        // simulating receiving packets from EPoolGroup
+        while (bytesRead != msLength)
+        {
+            int amt = preGenerated[preGeneratedIndex];
+            preGeneratedIndex = (++preGeneratedIndex) % preGeneratedLength;
+            for (int i = 0; i < amt && bytesRead != msLength; ++i)
+            {
+                byte length = reader.ReadByte();
+                msIn.Position -= 1;
+                byte[] arr = reader.ReadBytes(length + 1);
+                bytesRead += 1 + length;
+                cPagingBuffer.Write(arr);
+                written++;
+
+                if (readFinished)
+                    break;
+
+                // simulating sending packets out
+                if (!readFinished)
+                {
+                    ReadState state = outPagingBuffer.Read(ref outBuffer, out int l);
+                    if (state == ReadState.Success)
+                    {
+                        // simulating out sending
+                        _bytesWritten += l;
+                        Span<byte> outSpan = new Span<byte>(outBuffer, 0, l);
+
+                        for (int j = 0; j < l;)
+                        {
+                            byte packetLength = outSpan[j];
+                            j += 1;
+                            Span<byte> outArr = outSpan.Slice(j, packetLength);
+                            j += packetLength;
+                            processed++;
+                        }
+                    }
+                }
+            }
+        }
+    }
+    writeFinished = true;
+    long end = Stopwatch.GetTimestamp();
+    long ticks = end - start;
+    double speed = ((double)written) / (double)ticks;
+    double ospeed = ((double)processed) / (double)ticks;
+    Console.WriteLine($"[WRITE THREAD]: Processed packets: {written}, ticks: {ticks}, P\\T: {speed:0.###}, mb\\s: {((double)inputNetworkBuffer.Length / (double)ticks * 10000000.0 / 1024.0 / 1024.0):0.###}");
+    Console.WriteLine($"[WRITE THREAD]: WrittenIn packets: {processed}, ticks: {ticks}, P\\T: {ospeed:0.###}, mb\\s: {((double)inputNetworkBuffer.Length / (double)ticks * 10000000.0 / 1024.0 / 1024.0):0.###}");
+}
+
+void ReadPaging()
+{
+    Console.WriteLine("[READ THREAD]: Started thread worker");
+    long processed = 0, writtenOut = 0;
+    byte[] readBuffer = new byte[65536];
+    byte[] outPacketBuffer = new byte[65536];
+    long start = Stopwatch.GetTimestamp();
+    while (!writeFinished)
+    {
+        int amt = preGenerated[preGeneratedIndexRT];
+        preGeneratedIndexRT = (++preGeneratedIndexRT) % preGeneratedLength;
+        // Thread.SpinWait(amt * 10); // simulating other work
+        // simulating processing received packets
+
+        ReadState state = cPagingBuffer.Read(ref readBuffer, out int length);
+        if (state == ReadState.Success)
+        {
+            if (writeFinished)
+                break;
+            Span<byte> inSpan = new Span<byte>(readBuffer, 0, length);
+
+            for (int j = 0; j < length;)
+            {
+                byte packetLength = inSpan[j];
+                j += 1;
+                Span<byte> outArr = inSpan.Slice(j, packetLength);
+                j += packetLength;
+                Thread.SpinWait(length); // simulating packet processing
+                processed++;
+
+                // simulating packet out writing
+                byte arrLength = preGeneratedOut[preGeneratedOutIndex];
+                preGeneratedOutIndex = (++preGeneratedOutIndex) % preGeneratedOutLength;
+                outPacketBuffer[0] = arrLength;
+                outPagingBuffer.Write(new Span<byte>(outPacketBuffer).Slice(0, arrLength + 1));
+                writtenOut++;
+            }
+
+        }
+    }
+    readFinished = true;
+    long end = Stopwatch.GetTimestamp();
+    long ticks = end - start;
+    double speed = ((double)processed) / (double)ticks;
+    double wspeed = ((double)writtenOut) / (double)ticks;
+    Console.WriteLine($"[READ THREAD]: ProcessedIn packets: {processed}, ticks: {ticks}, P\\T: {speed:0.###}, mb\\s: {((double)inputNetworkBuffer.Length / (double)ticks * 10000000.0 / 1024.0 / 1024.0):0.###}");
+    Console.WriteLine($"[READ THREAD]: WrittenOut packets: {writtenOut},  ticks: {ticks}, P\\T: {wspeed:0.###}, mb\\s: {((double)inputNetworkBuffer.Length / (double)ticks * 10000000.0 / 1024.0 / 1024.0):0.###}");
+}
+
+
 void Write()
 {
     Console.WriteLine("[WRITE THREAD]: Started thread worker");
     long start = Stopwatch.GetTimestamp();
     long written = 0, processed = 0;
-    byte[] cached = new byte[1024*4*4];
+    byte[] cached = new byte[1024 * 4 * 4];
     int cachedLength = 0;
 
     msIn = new MemoryStream(inputNetworkBuffer);
@@ -193,7 +321,7 @@ void Write()
                     break;
 
                 // simulating sending packets out
-                int writtenOut = outBuffer.Written;
+                uint writtenOut = outBuffer.Written;
                 if (writtenOut > 0 && !readFinished)
                 {
                     for (int j = 0; j < writtenOut; ++j)
@@ -204,6 +332,10 @@ void Write()
                             // simulating out sending
                             _bytesWritten += 1 + l;
                             processed++;
+                        }
+                        else
+                        {
+                            break;
                         }
                     }
                 }
@@ -229,8 +361,9 @@ void Read()
     int cachedLength = 0;
     while (!writeFinished || cBuffer.Written > 0)
     {
-        int written = cBuffer.Written;
-        int amt = preGenerated[preGeneratedIndex];
+        uint written = cBuffer.Written;
+        int amt = preGenerated[preGeneratedIndexRT];
+        preGeneratedIndexRT = (++preGeneratedIndexRT) % preGeneratedLength;
         // Thread.SpinWait(amt * 10); // simulating other work
         // simulating processing received packets
         if (cachedLength > 0)
@@ -273,7 +406,10 @@ void Read()
                         cachedLength = arrLength;
                         break;
                     }
-
+                }
+                else
+                {
+                    break;
                 }
             }
         }
