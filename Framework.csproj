@@ -9,6 +9,9 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <Compile Remove="AsyncByteCircularBuffer.cs" />
+    <Compile Remove="AsyncBytePoolCircularBuffer.cs" />
+    <Compile Remove="OldPaging.cs" />
     <Compile Remove="Program.cs" />
   </ItemGroup>
 
