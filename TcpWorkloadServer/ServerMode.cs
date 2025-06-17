@@ -1,4 +1,4 @@
-﻿namespace Test
+﻿namespace NETwork
 {
     public enum ServerMode
     {

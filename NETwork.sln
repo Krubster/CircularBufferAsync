@@ -3,9 +3,9 @@ Microsoft Visual Studio Solution File, Format Version 12.00
 # Visual Studio Version 17
 VisualStudioVersion = 17.12.35514.174
 MinimumVisualStudioVersion = 10.0.40219.1
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Framework", "Framework.csproj", "{CF06026E-F597-4F8B-A60B-6701B772E688}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Framework", "Framework\Framework.csproj", "{CF06026E-F597-4F8B-A60B-6701B772E688}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "TcpLoadClient", "TcpLoadClient\TcpLoadClient.csproj", "{0875F2F8-9DD4-477D-93B7-0CFB33239ACF}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "TcpLoadClient", "TcpWorkloadClient\TcpWorkloadClient.csproj", "{0875F2F8-9DD4-477D-93B7-0CFB33239ACF}"
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "TcpWorkloadServer", "TcpWorkloadServer\TcpWorkloadServer.csproj", "{22161E34-A538-48A5-A08D-583EDAC95F72}"
 EndProject

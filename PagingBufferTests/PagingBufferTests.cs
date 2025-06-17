@@ -1,4 +1,4 @@
-﻿using CircularBufferAsync.Buffers;
+﻿using NETwork.Buffers;
 using System.Buffers.Binary;
 using System.Text;
 

@@ -1,0 +1,24 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Library</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <AllowUnsafeBlocks>True</AllowUnsafeBlocks>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Compile Remove="AsyncByteCircularBuffer.cs" />
+    <Compile Remove="AsyncBytePoolCircularBuffer.cs" />
+    <Compile Remove="Buffers\CircularNetworkBuffer.cs" />
+    <Compile Remove="OldPaging.cs" />
+    <Compile Remove="Program.cs" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="CommunityToolkit.HighPerformance" Version="8.4.0" />
+    <PackageReference Include="PollGroup" Version="1.6.1" />
+  </ItemGroup>
+
+</Project>
