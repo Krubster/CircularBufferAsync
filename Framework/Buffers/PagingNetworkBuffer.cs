@@ -6,6 +6,8 @@ namespace NETwork
     {
         private readonly PagingBuffer _buffer;
 
+        public long WrittenBytes => _buffer.WrittenBytes();
+
         public PagingNetworkBuffer(PagingBuffer pagingBuffer)
         {
             _buffer = pagingBuffer;

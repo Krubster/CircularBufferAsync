@@ -13,6 +13,10 @@ namespace Framework.BackPressureStrategies
             _threshold = threshold;
         }
 
+        public void OnDispose(NetState state)
+        {
+            _unprocessedBytes[state.Id] = 0;
+        }
 
         public void OnReceive(NetState state, int bytes) => _unprocessedBytes[state.Id] += bytes;
 
@@ -33,6 +37,11 @@ namespace Framework.BackPressureStrategies
         }
 
         public void Update(double logicMs)
+        {
+            throw new NotImplementedException();
+        }
+
+        public bool ShouldPauseNet()
         {
             throw new NotImplementedException();
         }

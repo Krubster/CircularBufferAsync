@@ -2,6 +2,7 @@
 {
     public interface INetworkBuffer
     {
+        public long WrittenBytes { get; }
         Span<byte> GetWriteSpan(int sizeHint, out Action<int> commit);
         bool Write(ReadOnlySpan<byte> packet, int length);
         bool Write(ReadOnlySpan<byte> packet);

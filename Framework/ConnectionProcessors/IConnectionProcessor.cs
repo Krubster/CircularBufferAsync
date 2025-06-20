@@ -8,6 +8,8 @@ namespace NETwork.ConnectionProcessors
         void Add(Socket socket); // Called by TcpWorkloadServer
         void Start(CancellationToken token); // Starts worker threads / loops
         void Stop();
+
+        void SetRuntime(string key, string value);
         ConcurrentQueue<NetState> FlushPending { get; }
     }
 }

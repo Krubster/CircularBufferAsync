@@ -31,5 +31,16 @@ namespace Framework.BackPressureStrategies
         {
             throw new NotImplementedException();
         }
+
+        public bool ShouldPauseNet()
+        {
+            throw new NotImplementedException();
+        }
+
+        public void OnDispose(NetState state)
+        {
+            _recvBuffer[state.Id] = 0;
+            _sendBuffer[state.Id] = 0;
+        }
     }
 }

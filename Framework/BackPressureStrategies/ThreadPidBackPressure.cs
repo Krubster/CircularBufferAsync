@@ -20,7 +20,6 @@ public class ThreadPidBackPressure : IBackPressureStrategy
     public double LastPidOutput { get; private set; }
     public int AllowedBytesPerConn => _allowedBytesPerConn;
 
-    private long _lastLogicTicks;
     private double _smoothedLogicMs = 0;
     private readonly double _smoothingAlpha = 0.2;
     private double _lastRecvRateBps = 0;
@@ -32,8 +31,7 @@ public class ThreadPidBackPressure : IBackPressureStrategy
     {
         _stats = stats;
         _targetLogicMs = targetLogicMs;
-        _pid = new PIDController(kp: 0.3, ki: 0.03, kd: 0.02, minOutput: 0.2, maxOutput: 1.0);
-        _lastLogicTicks = _stats.LogicThreadActiveTicks;
+        _pid = new PIDController(kp: 0.15, ki: 0.05, kd: 0.01, minOutput: 0.2, maxOutput: 1.0, true);
         _lastUpdateTime = _sw.Elapsed.TotalSeconds;
 
         OnUpdateMetrics = stats =>
@@ -53,8 +51,6 @@ public class ThreadPidBackPressure : IBackPressureStrategy
         if (delta < 0.1) return;
 
         long currentLogicTicks = _stats.LogicThreadActiveTicks;
-        long logicDeltaTicks = currentLogicTicks - _lastLogicTicks;
-        _lastLogicTicks = currentLogicTicks;
 
         _smoothedLogicMs = _smoothedLogicMs * (1 - _smoothingAlpha) + logicMs * _smoothingAlpha;
         LastLogicMs = _smoothedLogicMs;
@@ -82,39 +78,89 @@ public class ThreadPidBackPressure : IBackPressureStrategy
         _pendingBytesByConn.AddOrUpdate(state.Id, 0, (_, old) => Math.Max(0, old - bytes));
     }
 
+    public void OnDispose(NetState state)
+    {
+        if(_pendingBytesByConn.ContainsKey(state.Id))
+            _pendingBytesByConn.Remove(state.Id, out var _);
+    }
+
     public void OnSend(NetState state, int bytes) { }
 
-    private class PIDController
+    public bool ShouldPauseNet()
     {
-        private readonly double _kp, _ki, _kd;
-        private double _integral, _previousError;
-        private readonly double _minOutput, _maxOutput;
-        private const double DeadzoneMs = 5.0;
-        private double _lastOutput = 0;
+        throw new NotImplementedException();
+    }
+}
+public class PIDController
+{
+    private double _kp, _ki, _kd;
+    private double _integral, _previousError;
+    private readonly double _minOutput, _maxOutput;
+    private double _lastOutput = 0;
 
-        public PIDController(double kp, double ki, double kd, double minOutput = 0.2, double maxOutput = 1)
+    private readonly bool _enableAutoTune;
+
+    // Для автонастройки
+    private readonly Queue<double> _errorHistory = new();
+    private readonly int _historySize = 20;
+
+    public PIDController(
+        double kp, double ki, double kd,
+        double minOutput = 0.2, double maxOutput = 1,
+        bool enableAutoTune = false)
+    {
+        _kp = kp;
+        _ki = ki;
+        _kd = kd;
+        _minOutput = minOutput;
+        _maxOutput = maxOutput;
+        _enableAutoTune = enableAutoTune;
+    }
+
+    public double Update(double setpoint, double actual, double deltaTime)
+    {
+        double error = setpoint - actual;
+
+        _integral += error * deltaTime;
+        _integral = Math.Clamp(_integral, -100, 100);
+
+        double derivative = (error - _previousError) / deltaTime;
+        _previousError = error;
+
+        double output = (_kp * error) + (_ki * _integral) + (_kd * derivative);
+        _lastOutput = Math.Clamp(output, _minOutput, _maxOutput);
+
+        if (_enableAutoTune)
+            RecordAndTune(error);
+
+        return _lastOutput;
+    }
+
+    private void RecordAndTune(double error)
+    {
+        _errorHistory.Enqueue(error);
+        if (_errorHistory.Count > _historySize)
+            _errorHistory.Dequeue();
+
+        if (_errorHistory.Count < _historySize)
+            return;
+
+        var errors = _errorHistory.ToArray();
+        double avg = errors.Average();
+        double variance = errors.Select(e => (e - avg) * (e - avg)).Average();
+
+        if (variance < 1.0 && Math.Abs(avg) < 2.0)
         {
-            _kp = kp;
-            _ki = ki;
-            _kd = kd;
-            _minOutput = minOutput;
-            _maxOutput = maxOutput;
+            _kp *= 1.01;
+            _kp = Math.Min(_kp, 1.0);
         }
-
-        public double Update(double setpoint, double actual, double deltaTime)
+        else if (variance > 8.0)
         {
-            double error = setpoint - actual;
-            if (Math.Abs(error) < DeadzoneMs)
-                return _lastOutput;
+            _kp *= 0.95;
+            _ki *= 1.05;
 
-            _integral += error * deltaTime;
-            _integral = Math.Clamp(_integral, -100, 100);
-            double derivative = (error - _previousError) / deltaTime;
-            _previousError = error;
-
-            double output = (_kp * error) + (_ki * _integral) + (_kd * derivative);
-            _lastOutput = Math.Clamp(output, _minOutput, _maxOutput);
-            return _lastOutput;
+            _kp = Math.Max(_kp, 0.05);
+            _ki = Math.Min(_ki, 0.5);
         }
     }
 }

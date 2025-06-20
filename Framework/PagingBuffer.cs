@@ -32,6 +32,19 @@ namespace NETwork.Buffers
             _write = _start;
         }
 
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public long WrittenBytes()
+        {
+            long total = 0;
+
+            foreach (var page in _readyPages)
+            {
+                total += page.Available();
+            }
+
+            return total;
+        }
+
         public Span<byte> GetWriteSpan(int sizeHint, out Action<int> commit)
         {
             if (_write.Remaining() < sizeHint)

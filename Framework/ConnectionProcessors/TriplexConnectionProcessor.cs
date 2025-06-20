@@ -7,9 +7,11 @@ using NETwork;
 using NETwork.Buffers;
 using System.Collections.Concurrent;
 using System.Diagnostics;
+using System.Net.Sockets;
 
 public class TriplexConnectionProcessor : BaseConnectionProcessor, IThreadStats
 {
+    public long SendThreadActiveTicks => _writeThreadActiveTicks;
     public long NetThreadActiveTicks => _netThreadActiveTicks;
     public long LogicThreadActiveTicks => _logicThreadActiveTicks;
 
@@ -30,12 +32,12 @@ public class TriplexConnectionProcessor : BaseConnectionProcessor, IThreadStats
     private readonly Stopwatch _logicStopwatch = Stopwatch.StartNew();
     private long _lastColdTickTimeMs = 0;
     private readonly IColdLogicController _coldController;
-
+    private readonly ManualResetEventSlim _sendWaiter = new(false);
     public TriplexConnectionProcessor(Func<INetworkBuffer> inBufferFactory, Func<INetworkBuffer> outBufferFactory, IPacketProcessor processor, ILogicWorkload logicWorkload, IServerTrafficPattern pattern, IStatsCollector? collector = null)
         : base(processor, collector, logicWorkload, pattern, 1024)
     {
         _coldController = new AdaptiveTickRateController(20, 100, () => false);
-        _backPressure = new ThreadPidBackPressure(this, targetLogicMs: 20);
+        _backPressure = new DualPidBackPressure(this, targetLogicMs: 20, targetSendMs: 10);
         _inFactory = inBufferFactory;
         _outFactory = outBufferFactory;
     }
@@ -51,10 +53,10 @@ public class TriplexConnectionProcessor : BaseConnectionProcessor, IThreadStats
             while (!_ct.IsCancellationRequested)
             {
                 ReportStats();
-                Thread.Sleep(10);
+                Thread.Sleep(100);
             }
         })
-        { IsBackground = true, Name = "BackPressureUpdater" };
+        { IsBackground = true, Name = "MetricsThread" };
         _netThread.Start();
         _logicThread.Start();
         _sendThread.Start();
@@ -65,9 +67,16 @@ public class TriplexConnectionProcessor : BaseConnectionProcessor, IThreadStats
     {
         while (!_ct.IsCancellationRequested)
         {
+            if (_backPressure.ShouldPauseNet())
+            {
+                Thread.Sleep(0);
+                continue;
+            }
+
+            int count = _pollGroup.Poll(_polledStates, 2);
+
             var localTimer = _threadTimer.Value!;
             long start = localTimer.ElapsedTicks;
-
             while (_newConnections.TryDequeue(out var sock))
             {
                 var state = new NetState(sock, this);
@@ -77,8 +86,6 @@ public class TriplexConnectionProcessor : BaseConnectionProcessor, IThreadStats
                 state.RecvBuffer = _inFactory();
                 state.SendBuffer = _outFactory();
             }
-
-            int count = _pollGroup.Poll(_polledStates);
             for (int i = 0; i < count && !_ct.IsCancellationRequested; i++)
             {
                 if (_polledStates[i].Target is not NetState state) continue;
@@ -99,6 +106,7 @@ public class TriplexConnectionProcessor : BaseConnectionProcessor, IThreadStats
             }
 
             _netThreadActiveTicks += localTimer.ElapsedTicks - start;
+            Thread.Sleep(1);
             _netMeter.Tick();
         }
     }
@@ -136,16 +144,23 @@ public class TriplexConnectionProcessor : BaseConnectionProcessor, IThreadStats
                             writer.Write((byte)0);
                         commit((int)(packetLen + 2));
                         state.Send(writer.Span, (int)(packetLen + 2));
+                        _sendWaiter.Set();
                     }
                 }
             }
 
             RunColdTickIfDue();
-            _backPressure?.Update(logicSw.Elapsed.TotalMilliseconds);
 
             _logicThreadActiveTicks += localTimer.ElapsedTicks - start;
             _logicMeter.Tick();
+            _backPressure?.Update(logicSw.Elapsed.TotalMilliseconds);
         }
+    }
+
+    protected override void Cleanup(NetState state)
+    {
+        base.Cleanup(state);
+        _backPressure?.OnDispose(state);
     }
 
     private void RunColdTickIfDue()
@@ -164,13 +179,42 @@ public class TriplexConnectionProcessor : BaseConnectionProcessor, IThreadStats
     {
         while (!_ct.IsCancellationRequested)
         {
+            if (_flushPending.IsEmpty)
+            {
+                _sendWaiter.Wait();
+                _sendWaiter.Reset();
+            }
+
             var localTimer = _threadTimer.Value!;
             long start = localTimer.ElapsedTicks;
+
             FlushSends();
             _writeThreadActiveTicks += localTimer.ElapsedTicks - start;
             _writeMeter.Tick();
         }
     }
+    protected override void FlushSends()
+    {
+        while (_flushPending.TryDequeue(out var state) && !_ct.IsCancellationRequested)
+        {
+            try
+            {
+                while (state.SendBuffer.TryPeek(out var buffer) && !_ct.IsCancellationRequested)
+                {
+                    int sent = state.Socket.Send(buffer, SocketFlags.None);
+                    state.FlushReset();
+                    _bytesSent += sent;
+                    state.SendBuffer.Advance(buffer.Length);
+                    OnSent(state, sent);
+                }
+            }
+            catch
+            {
+                Cleanup(state);
+            }
+        }
+    }
+
 
     protected override void OnSent(NetState state, int sent)
     {
@@ -179,6 +223,8 @@ public class TriplexConnectionProcessor : BaseConnectionProcessor, IThreadStats
 
     protected override void OnStopped()
     {
+        _sendWaiter.Set(); // разблокируем поток
+
         _netThread?.Join();
         _logicThread?.Join();
         _sendThread?.Join();
@@ -193,17 +239,18 @@ public class TriplexConnectionProcessor : BaseConnectionProcessor, IThreadStats
         long logicPercent = _logicThreadActiveTicks * 100 / total;
         long writePercent = _writeThreadActiveTicks * 100 / total;
 
-        var stats = new ConnectionStats
-        {
-            StartedTicks = _started,
-            UptimeTicks = uptime,
-            BytesReceived = _bytesReceived,
-            BytesSent = _bytesSent,
-            PacketsProcessed = _packets,
-            ThreadTicks = new[] { netPercent, logicPercent, writePercent },
-            Cycles = new[] { _logicMeter.AverageCyclesPerSecond, _netMeter.AverageCyclesPerSecond, _writeMeter.AverageCyclesPerSecond }
-        };
-
+        var stats = new ConnectionStats();
+        stats.AddMetric("connections", _states.Count);
+        stats.AddMetric("bytesReceived", _bytesReceived);
+        stats.AddMetric("bytesSent", _bytesSent);
+        stats.AddMetric("packetsProcessed", _packets);
+        stats.AddMetric("uptimeMs", uptime);
+        stats.AddMetric("threadLogic%", logicPercent);
+        stats.AddMetric("threadNet%", netPercent);
+        stats.AddMetric("threadWrite%", writePercent);
+        stats.AddMetric("cyclesLogic", _logicMeter.AverageCyclesPerSecond);
+        stats.AddMetric("cyclesNet", _netMeter.AverageCyclesPerSecond);
+        stats.AddMetric("cyclesWrite", _writeMeter.AverageCyclesPerSecond);
         _backPressure.OnUpdateMetrics?.Invoke(stats);
         _collector?.Report(stats);
     }

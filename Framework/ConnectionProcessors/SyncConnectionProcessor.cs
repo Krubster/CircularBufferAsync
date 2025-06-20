@@ -26,12 +26,12 @@ public class SyncConnectionProcessor : BaseConnectionProcessor
             while (!_ct.IsCancellationRequested)
             {
                 ReportStats();
-                Thread.Sleep(10);
+                Thread.Sleep(100);
             }
         })
         {
             IsBackground = true,
-            Name = "BackPressureUpdater"
+            Name = "MetricsThread"
         };
         _reportUpdater.Start();
     }
@@ -74,11 +74,8 @@ public class SyncConnectionProcessor : BaseConnectionProcessor
                 {
                     _bytesReceived += state.HandleReceive((payload, conn) =>
                     {
-                        var sw = Stopwatch.StartNew();
                         var processed = Processor.ProcessBuffer(payload, state);
                         _packets += processed;
-                        sw.Stop();
-                        Console.WriteLine($"Processed {processed} packets in {sw.Elapsed.TotalMilliseconds} ms");
                     });
                 }
                 catch { Cleanup(state); }
@@ -122,15 +119,13 @@ public class SyncConnectionProcessor : BaseConnectionProcessor
     protected override void ReportStats()
     {
         long uptime = (_stopped > 0 ? _stopped : Environment.TickCount64) - _started;
-        _collector?.Report(new ConnectionStats
-        {
-            StartedTicks = _started,
-            UptimeTicks = uptime,
-            BytesReceived = _bytesReceived,
-            BytesSent = _bytesSent,
-            PacketsProcessed = _packets,
-            ThreadTicks = new long[] { 0, 0, 0 },
-            Cycles = new[] { _mainMeter.AverageCyclesPerSecond, 0, 0 }
-        });
+        var stats = new ConnectionStats();
+        stats.AddMetric("connections", _states.Count);
+        stats.AddMetric("bytesReceived", _bytesReceived);
+        stats.AddMetric("bytesSent", _bytesSent);
+        stats.AddMetric("packetsProcessed", _packets);
+        stats.AddMetric("uptimeMs", uptime);
+        stats.AddMetric("cyclesLogic", _mainMeter.AverageCyclesPerSecond);
+        _collector?.Report(stats);
     }
 }

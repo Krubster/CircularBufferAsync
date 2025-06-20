@@ -9,6 +9,14 @@ namespace Framework.Workloads
 {
     public class SpinWaitLogicWorkload : ILogicWorkload
     {
+        public int Workload
+        {
+            get => _cpuWork;
+            set
+            {
+                _cpuWork = value;
+            }
+        }
         private int _cpuWork;
         public SpinWaitLogicWorkload(int cpuWork = 1000)
         {

@@ -53,6 +53,60 @@ namespace Framework.ConnectionProcessors
 
         protected abstract void OnStopped();
 
+        public void SetRuntime(string key, string value)
+        {
+            switch (key)
+            {
+                case "cpuload":
+                {
+                    if (Processor is CpuIntensiveProcessor p)
+                    {
+                        p.CpuLoad = int.TryParse(value, out var load) ? load : 10;
+                    }
+
+                    break;
+                }
+                case "sendChance":
+                {
+                    if (_serverTrafficPattern is SimpleServerPacketPattern p)
+                    {
+                        p.SendChance = double.TryParse(value, out var load) ? load : 0.3;
+                    }
+
+                    break;
+                }
+                case "lowBorder":
+                {
+                    if (_serverTrafficPattern is SimpleServerPacketPattern p)
+                    {
+                        p.LowEnd = int.TryParse(value, out var load) ? load : 30;
+                    }
+
+                    break;
+                }
+                case "highBorder":
+                {
+                    if (_serverTrafficPattern is SimpleServerPacketPattern p)
+                    {
+                        p.HighEnd = int.TryParse(value, out var load) ? load : 150;
+                    }
+
+                    break;
+                }
+                case "backgroundWorkload":
+                {
+                    if (_logicWorkload is SpinWaitLogicWorkload p)
+                    {
+                        p.Workload = int.TryParse(value, out var load) ? load : 10000;
+                    }
+
+                    break;
+                }
+                case "workload":
+                    break;
+            }
+        }
+
         protected virtual void OnSent(NetState state, int sent)
         {
         }
@@ -81,9 +135,24 @@ namespace Framework.ConnectionProcessors
 
         protected virtual void Cleanup(NetState state)
         {
-            _pollGroup.Remove(state.Socket, state.Handle);
-            _states.TryRemove(state.Socket, out _);
-            state.Dispose();
+            if (_states.ContainsKey(state.Socket))
+            {
+                _states.Remove(state.Socket, out _);
+                try
+                {
+                    _pollGroup.Remove(state.Socket, state.Handle);
+                }
+                catch(ObjectDisposedException ex1)
+                {
+                    Console.WriteLine($"[BaseConnectionProcessor] Dispose error: {ex1}");
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"[BaseConnectionProcessor] Cleanup error: {ex}");
+                }
+
+                state.Dispose();
+            }
         }
 
         protected abstract void ReportStats();

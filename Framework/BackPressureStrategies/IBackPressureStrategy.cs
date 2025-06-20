@@ -8,8 +8,10 @@ namespace Framework.BackPressureStrategies
         void OnReceive(NetState state, int bytes);
         void OnProcess(NetState state, int bytes);
         void OnSend(NetState state, int bytes);
+        void OnDispose(NetState state);
         public void Update(double logicMs);
         bool ShouldPauseRecv(NetState state);
         bool ShouldPauseLogic(NetState state);
+        bool ShouldPauseNet();
     }
 }

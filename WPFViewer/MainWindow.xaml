@@ -1,0 +1,92 @@
+﻿<Window x:Class="WPFViewer.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:lvc="clr-namespace:LiveChartsCore.SkiaSharpView.WPF;assembly=LiveChartsCore.SkiaSharpView.WPF"
+        xmlns:wpfViewer="clr-namespace:WPFViewer"
+        WindowState="Maximized"
+        Title="TCP Metrics Viewer" Height="600" Width="1000">
+    <Window.Resources>
+        <wpfViewer:MetricsContainsConverter x:Key="MetricsContainsConverter"/>
+    </Window.Resources>
+    <DockPanel>
+        <StackPanel DockPanel.Dock="Left" Width="300" Margin="10">
+          
+            <!-- Панель управления сервером -->
+            <Expander Header="Server Settings" IsExpanded="True" Margin="0,0,0,10">
+                <StackPanel>
+                    <TextBlock Text="Executable:" Margin="0,10,0,0"/>
+                    <StackPanel Orientation="Horizontal">
+                        <TextBox Text="{Binding ServerExePath}" Width="200"/>
+                        <Button Content="..." Width="30" Margin="5,0,0,0" Click="OnBrowseServerExe"/>
+                    </StackPanel>
+                    <TextBlock Text="Preset:"/>
+                    <ComboBox ItemsSource="{Binding ServerPresets}" SelectedItem="{Binding SelectedServerPreset}" DisplayMemberPath="Name"/>
+                    <Button Content="Apply Preset" Click="OnApplyServerPreset"/>
+                    <TextBlock Text="Arguments:" Margin="0,10,0,0"/>
+                    <TextBox Text="{Binding ServerArguments}" AcceptsReturn="True" Height="60"/>
+                    <Button Content="{Binding ServerToggleButtonText}" Click="OnToggleServerClicked" Margin="0,5,0,0"/>
+                </StackPanel>
+            </Expander>
+
+            <!-- Панель управления клиентом -->
+            <Expander Header="Client Settings" IsExpanded="True" Margin="0,0,0,10">
+                <StackPanel>
+                    <TextBlock Text="Executable:" Margin="0,10,0,0"/>
+                    <StackPanel Orientation="Horizontal">
+                        <TextBox Text="{Binding ClientExePath}" Width="200"/>
+                        <Button Content="..." Width="30" Margin="5,0,0,0" Click="OnBrowseClientExe"/>
+                    </StackPanel>
+                    <TextBlock Text="Preset:"/>
+                    <ComboBox ItemsSource="{Binding ClientPresets}" SelectedItem="{Binding SelectedClientPreset}" DisplayMemberPath="Name"/>
+                    <Button Content="Apply Preset" Click="OnApplyClientPreset"/>
+                    <TextBlock Text="Arguments:" Margin="0,10,0,0"/>
+                    <TextBox Text="{Binding ClientArguments}" AcceptsReturn="True" Height="60"/>
+                    <Button Content="{Binding ClientToggleButtonText}" Click="OnToggleClientClicked" Margin="0,5,0,0"/>
+                </StackPanel>
+            </Expander>
+
+            <!-- Отправка команд -->
+            <TextBlock Text="Command:" Margin="0,10,0,0"/>
+            <TextBox Text="{Binding CommandToSend}" Height="60" AcceptsReturn="True"/>
+            <Button Content="Send Command" Click="OnSendCommandClicked" Margin="0,5,0,20"/>
+            <TextBlock Text="Metrics:" FontWeight="Bold" />
+            <ScrollViewer Height="400">
+                <ItemsControl ItemsSource="{Binding AvailableMetrics}">
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate>
+                            <CheckBox Content="{Binding}" 
+                                  Checked="CheckBox_Checked"
+                                  Unchecked="CheckBox_Unchecked"/>
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
+            </ScrollViewer>
+        </StackPanel>
+        <Grid DockPanel.Dock="Right">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="*" />
+                <!-- Графики -->
+                <RowDefinition Height="120" />
+                <!-- Лог -->
+            </Grid.RowDefinitions>
+            <!-- Графики -->
+            <ScrollViewer Grid.Row="0">
+                <ItemsControl ItemsSource="{Binding SeriesCollection}">
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate>
+                            <lvc:CartesianChart Series="{Binding Series}"
+                                        XAxes="{Binding XAxes}"
+                                        YAxes="{Binding YAxes}"
+                                        Height="200"
+                                        Margin="10"/>
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
+            </ScrollViewer>
+            <!-- Лог -->
+            <Border Grid.Row="1" BorderThickness="1" BorderBrush="Gray" Margin="5">
+                <ListBox ItemsSource="{Binding Logs}" Name="LogListBox"/>
+            </Border>
+        </Grid>
+        </DockPanel>
+</Window>

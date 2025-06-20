@@ -4,7 +4,16 @@ using NETwork;
 
 public class CpuIntensiveProcessor : IPacketProcessor
 {
-    private readonly int _workPerByte;
+    public int CpuLoad
+    {
+        get => _workPerByte; set
+        {
+            if (value < 1)
+                throw new ArgumentOutOfRangeException(nameof(value), "CpuLoad must be at least 1");
+            _workPerByte = value;
+        }
+    }
+    private int _workPerByte;
 
     public CpuIntensiveProcessor(int workPerByte = 10)
     {

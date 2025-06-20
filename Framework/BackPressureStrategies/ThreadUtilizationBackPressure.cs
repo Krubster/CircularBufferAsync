@@ -6,12 +6,13 @@ namespace Framework.BackPressureStrategies
     {
         public long NetThreadActiveTicks { get; }
         public long LogicThreadActiveTicks { get; }
+        public long SendThreadActiveTicks { get; }
     }
     public class ThreadUtilizationBackPressure : IBackPressureStrategy
     {
         public Action<ConnectionStats>? OnUpdateMetrics { get; set; }
         private readonly IThreadStats _stats;
-        private const long MinTickThreshold = 1_000_000; // минимальное значение тиков, чтобы стратегия начала работать
+        private const long MinTickThreshold = 1_000_000;
         private const float LowerBound = 0.7f;
         private const float UpperBound = 1.5f;
         public static Func<bool>? IsColdLogicOverloaded;
@@ -69,6 +70,16 @@ namespace Framework.BackPressureStrategies
         public void OnSend(NetState state, int bytes) { }
 
         public void Update(double logicMs)
+        {
+            throw new NotImplementedException();
+        }
+
+        public bool ShouldPauseNet()
+        {
+            throw new NotImplementedException();
+        }
+
+        public void OnDispose(NetState state)
         {
             throw new NotImplementedException();
         }

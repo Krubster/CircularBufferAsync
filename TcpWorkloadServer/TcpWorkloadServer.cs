@@ -11,6 +11,8 @@ public class TcpWorkloadServer
     private Socket? _listener;
     private Thread? _acceptThread;
 
+    public IConnectionProcessor Processor { get; internal set; }
+
     public TcpWorkloadServer(IPEndPoint listenEndPoint, Func<IConnectionProcessor> processorFactory, CancellationToken token)
     {
         _listenEndPoint = listenEndPoint;

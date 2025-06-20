@@ -12,6 +12,7 @@ public class AsyncConnectionProcessor : BaseConnectionProcessor, IThreadStats
 {
     public long NetThreadActiveTicks => _netThreadActiveTicks;
     public long LogicThreadActiveTicks => _logicThreadActiveTicks;
+    public long SendThreadActiveTicks { get; }
 
     private readonly ConcurrentDictionary<int, NetState> _statesById = new();
     private readonly ConcurrentQueue<int> _pendingRead = new();
@@ -52,12 +53,12 @@ public class AsyncConnectionProcessor : BaseConnectionProcessor, IThreadStats
             while (!_ct.IsCancellationRequested)
             {
                 ReportStats();
-                Thread.Sleep(10);
+                Thread.Sleep(100);
             }
         })
         {
             IsBackground = true,
-            Name = "BackPressureUpdater"
+            Name = "MetricsThread"
         };
         _netThread.Start();
         _logicThread.Start();
@@ -68,6 +69,7 @@ public class AsyncConnectionProcessor : BaseConnectionProcessor, IThreadStats
     {
         while (!_ct.IsCancellationRequested)
         {
+            int count = _pollGroup.Poll(_polledStates, 2);
             var localTimer = _threadTimer.Value!;
             long start = localTimer.ElapsedTicks;
 
@@ -80,8 +82,6 @@ public class AsyncConnectionProcessor : BaseConnectionProcessor, IThreadStats
                 state.RecvBuffer = _inFactory();
                 state.SendBuffer = _outFactory();
             }
-
-            int count = _pollGroup.Poll(_polledStates);
             for (int i = 0; i < count && !_ct.IsCancellationRequested; i++)
             {
                 if (_polledStates[i].Target is not NetState state) continue;
@@ -145,10 +145,10 @@ public class AsyncConnectionProcessor : BaseConnectionProcessor, IThreadStats
             }
 
             RunColdTickIfDue();
-            _backPressure?.Update(logicSw.Elapsed.TotalMilliseconds);
 
             _logicThreadActiveTicks += localTimer.ElapsedTicks - start;
             _logicMeter.Tick();
+            _backPressure?.Update(logicSw.Elapsed.TotalMilliseconds);
         }
     }
 
@@ -162,22 +162,12 @@ public class AsyncConnectionProcessor : BaseConnectionProcessor, IThreadStats
 
         _lastColdTickTimeMs = nowMs;
         _logicWorkload.Execute();
+    }
 
-        //int targetMs = _coldController.GetTargetTickDurationMs();
-        //bool coldTickOverdue = elapsed > (targetMs + 10);
-        //ThreadUtilizationBackPressure.IsColdLogicOverloaded = () => coldTickOverdue;
-
-        /*long postColdNow = _logicStopwatch.ElapsedMilliseconds;
-        int delayMs = targetMs - (int)(postColdNow - _lastColdTickTimeMs);
-        if (delayMs > 0 && delayMs <= 10)
-        {
-            var sw = Stopwatch.StartNew();
-            while (sw.ElapsedMilliseconds < delayMs)
-            {
-                Thread.Yield();
-                Thread.SpinWait(50);
-            }
-        }*/
+    protected override void Cleanup(NetState state)
+    {
+        base.Cleanup(state);
+        _backPressure?.OnDispose(state);
     }
 
     protected override void OnSent(NetState state, int sent)
@@ -199,16 +189,17 @@ public class AsyncConnectionProcessor : BaseConnectionProcessor, IThreadStats
         long netPercent = _netThreadActiveTicks * 100 / total;
         long logicPercent = _logicThreadActiveTicks * 100 / total;
 
-        var stats = new ConnectionStats
-        {
-            StartedTicks = _started,
-            UptimeTicks = uptime,
-            BytesReceived = _bytesReceived,
-            BytesSent = _bytesSent,
-            PacketsProcessed = _packets,
-            ThreadTicks = new[] { netPercent, logicPercent },
-            Cycles = new[] { _logicMeter.AverageCyclesPerSecond, _netMeter.AverageCyclesPerSecond }
-        };
+        var stats = new ConnectionStats();
+        stats.AddMetric("connections", _states.Count);
+        stats.AddMetric("bytesReceived", _bytesReceived);
+        stats.AddMetric("bytesSent", _bytesSent);
+        stats.AddMetric("packetsProcessed", _packets);
+        stats.AddMetric("uptimeMs", uptime);
+        stats.AddMetric("threadLogic%", logicPercent);
+        stats.AddMetric("threadNet%", netPercent);
+        stats.AddMetric("cyclesLogic", _logicMeter.AverageCyclesPerSecond);
+        stats.AddMetric("cyclesNet", _netMeter.AverageCyclesPerSecond);
+
         _backPressure.OnUpdateMetrics?.Invoke(stats);
         _collector?.Report(stats);
     }
