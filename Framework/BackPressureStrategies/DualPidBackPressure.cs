@@ -105,15 +105,13 @@ public class DualPidBackPressure : IBackPressureStrategy
         int recv = _recvPendingBytes.TryGetValue(state.Id, out var r) ? r : 0;
         int sendBuffered = (int)state.SendBuffer.WrittenBytes;
 
-        return recv >= _recvAllowedBytes || sendBuffered >= _sendAllowedBytes;
+        return recv >= _recvAllowedBytes || sendBuffered >= 1024;
     }
 
     public bool ShouldPauseLogic(NetState state) => false;
 
     public bool ShouldPauseSend(NetState state)
     {
-        if (LogicPidOutput < 0.4 && SendPidOutput > 0.4)
-            return true;
         return false;
     }
 
@@ -124,7 +122,7 @@ public class DualPidBackPressure : IBackPressureStrategy
 
     public void OnProcess(NetState state, int bytes)
     {
-        _recvPendingBytes.AddOrUpdate(state.Id, 0, (_, old) => Math.Max(0, old - bytes));
+        _recvPendingBytes.AddOrUpdate(state.Id,  -bytes, (_, old) => Math.Max(0, old - bytes));
     }
 
     public void OnSend(NetState state, int bytes)

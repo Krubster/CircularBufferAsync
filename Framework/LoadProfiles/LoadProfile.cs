@@ -7,7 +7,6 @@ namespace NETwork.LoadProfiles
         public int LowEnd { get; set; } = 20;
         public int HighEnd { get; set; } = 150;
         public Func<int> PacketSizeGenerator { get; set; } = () => Random.Shared.Next(20, 50);
-        public TimeSpan SendInterval { get; set; } = TimeSpan.FromMilliseconds(1);
         public int Connections { get; set; } = 1;
         public int TotalBytesToSend { get; set; } = 1024 * 1024 * 100;
         public bool InfiniteTraffic { get; set; } = false;

@@ -2,6 +2,7 @@
 using System.Net;
 using System.Net.Sockets;
 using NETwork.LoadProfiles;
+using Exception = System.Exception;
 
 namespace TcpTestFramework
 {
@@ -57,11 +58,32 @@ namespace TcpTestFramework
             Socket socket = await ConnectWithRetryAsync(id, _serverEndPoint, ct);
             if (socket == null)
                 return;
+            _ = Task.Run(async () =>
+            {
+                var recvBuffer = new byte[1024*16];
+                try
+                {
+                    while (!ct.IsCancellationRequested)
+                    {
+                        int read = await socket.ReceiveAsync(recvBuffer, SocketFlags.None, ct);
+                        if (read == 0)
+                            break; // socket closed
+
+                        // optionally: обработка ответа, например подсчёт/лог
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"[Connection {id}] Receive loop error: {ex.Message}");
+                }
+            });
 
             byte[] sendBuffer = new byte[8192];
             int receiveBufferCount = 0, totalSent = 0;
             try
             {
+                await Task.Delay(Random.Shared.Next((int)_profile.LoopDelay.Value.TotalMilliseconds), ct);
+
                 while ((_profile.InfiniteTraffic || totalSent < _profile.TotalBytesToSend) && !ct.IsCancellationRequested)
                 {
                     try
@@ -86,47 +108,46 @@ namespace TcpTestFramework
 
                         await socket.SendAsync(sendBuffer.AsMemory(0, toSend), SocketFlags.None, ct);
                         totalSent += toSend;
-                        if (socket.Available > 0)
-                        {
-                            var buf = new byte[1024];
-                            await socket.ReceiveAsync(buf, SocketFlags.None, ct);
-                        }
+
                         if (_profile.LoopDelay.HasValue)
                             await Task.Delay(_profile.LoopDelay.Value, ct);
 
                         if (!socket.Connected)
                             break;
                     }
-                    catch (SocketException)
+                    catch (SocketException ex)
                     {
+                        Console.WriteLine($"[Client #{id}] SocketException ({ex.ErrorCode}): {ex.SocketErrorCode}");
                         break;
                     }
                 }
             }
-            catch (SocketException)
+            catch (SocketException ex)
             {
-                // логика при ошибке
+                Console.WriteLine($"[Client #{id}] SocketException ({ex.ErrorCode}): {ex.SocketErrorCode}");
             }
-            catch (OperationCanceledException)
+            catch (OperationCanceledException ex)
             {
-                // игнорируем — нормально
+                Console.WriteLine($"Client exception: {ex}");
             }
             finally
             {
                 try
                 {
                     if (socket.Connected)
-                        socket.Shutdown(SocketShutdown.Send);
+                    {
+                        socket.Shutdown(SocketShutdown.Both);
+                    }
 
-                    // дочитываем ACK
-                    var buffer = new byte[256];
-                    socket.Receive(buffer, SocketFlags.None);
-
-                    socket.Dispose();
+                    socket.Close(); // безопаснее, чем Dispose()
                 }
-                catch
+                catch (SocketException ex)
                 {
-                    // возможно, уже закрыт
+                    Console.WriteLine($"[Client #{id}] SocketException ({ex.ErrorCode}): {ex.SocketErrorCode}");
+                }
+                catch(Exception ex)
+                {
+                    Console.WriteLine($"[Client #{id}] Exception during shutdown: {ex}");
                 }
 
                 Console.WriteLine($"[Client #{id}] Connection closed.");

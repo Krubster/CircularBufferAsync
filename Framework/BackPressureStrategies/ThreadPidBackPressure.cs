@@ -12,8 +12,8 @@ public class ThreadPidBackPressure : IBackPressureStrategy
     private readonly Stopwatch _sw = Stopwatch.StartNew();
 
     private int _allowedBytesPerConn = 2048;
-    private readonly int _minBytes = 512;
-    private readonly int _maxBytes = 8192;
+    private readonly int _minBytes = 2048;
+    private readonly int _maxBytes = 8192*2;
     private readonly ConcurrentDictionary<int, int> _pendingBytesByConn = new();
 
     public double LastLogicMs { get; private set; }

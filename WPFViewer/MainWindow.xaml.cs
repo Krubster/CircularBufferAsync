@@ -1,6 +1,7 @@
 ﻿using System.Collections.ObjectModel;
 using System.ComponentModel;
 using System.Diagnostics;
+using System.Globalization;
 using System.IO;
 using System.Net.Sockets;
 using System.Text.Json;
@@ -146,6 +147,8 @@ namespace WPFViewer
                 OnPropertyChanged(nameof(ClientExePath));
             }
         }
+
+        private string serverMode = "Unknown";
         
         private const int ServerCommandPort = 23456;
         
@@ -160,6 +163,8 @@ namespace WPFViewer
         private AppSettings Settings = new();
         private ArgumentEditorWindow? _serverEditorWindow;
         private ArgumentEditorWindow? _clientEditorWindow;
+        private StreamWriter? _csvWriter;
+        private readonly object _csvLock = new();
         private void LoadSettings()
         {
             try
@@ -202,39 +207,39 @@ namespace WPFViewer
             LoadSettings();
             ServerPresets.Add(new LaunchPreset
             {
-                Name = "Sync Server",
+                Name = "Sync Server (Real)",
                 Args = new Dictionary<string, string>
                 {
                     { "mode", "Sync" },
                     { "infinite", "true" },
-                    { "cpuload", "10" },
+                    { "cpuload", "330" },
                     { "workload", "cpu" },
-                    { "backgroundWorkload", "10000" }
+                    { "backgroundWorkload", "30" }
                 }
             });
             ServerPresets.Add(new LaunchPreset
             {
-                Name = "Async Server",
+                Name = "Async Server (Real)",
                 Args = new Dictionary<string, string>
                 {
                     { "mode", "Async" },
                     { "infinite", "true" },
-                    { "cpuload", "10" },
+                    { "cpuload", "330" },
                     { "workload", "cpu" },
-                    { "backgroundWorkload", "10000" }
+                    { "backgroundWorkload", "30" }
                 }
             });
 
             ServerPresets.Add(new LaunchPreset
             {
-                Name = "Triplex Server",
+                Name = "Triplex Server (Real)",
                 Args = new Dictionary<string, string>
                 {
                     { "mode", "Triplex" },
                     { "infinite", "true" },
-                    { "cpuload", "10" },
+                    { "cpuload", "330" },
                     { "workload", "cpu" },
-                    { "backgroundWorkload", "10000" }
+                    { "backgroundWorkload", "30" }
                 }
             });
 
@@ -267,9 +272,9 @@ namespace WPFViewer
                 Args = new Dictionary<string, string>
                 {
                     { "connections", "10" },
-                    { "sendInterval", "300" },
-                    { "lowEnd", "20" },
-                    { "highEnd", "150" },
+                    { "sendInterval", "225" },
+                    { "lowEnd", "15" },
+                    { "highEnd", "21" },
                 }
             });
 
@@ -279,9 +284,9 @@ namespace WPFViewer
                 Args = new Dictionary<string, string>
                 {
                     { "connections", "1000" },
-                    { "sendInterval", "300" },
-                    { "lowEnd", "20" },
-                    { "highEnd", "150" },
+                    { "sendInterval", "225" },
+                    { "lowEnd", "15" },
+                    { "highEnd", "21" },
                 }
             });
             Task.Run(ServerCommandLoop);
@@ -289,7 +294,44 @@ namespace WPFViewer
             SelectedMetrics.CollectionChanged += (_, _) => UpdateSeries();
             Task.Run(ListenLoop);
         }
+        private void InitializeCsvWriter()
+        {
+            try
+            {
+                _csvWriter = new StreamWriter($"metrics_{serverMode}_{DateTime.Now:yyyyMMdd_HHmmss}.csv", false);
+                _csvWriter.WriteLine("Timestamp,Metric,Value");
+                _csvWriter.Flush();
+            }
+            catch (Exception ex)
+            {
+                Log($"CSV initialization failed: {ex.Message}");
+            }
+        }
 
+        private void AppendToCsv(MetricPoint point)
+        {
+            lock (_csvLock)
+            {
+                try
+                {
+                    if (_csvWriter == null) InitializeCsvWriter();
+
+                    foreach (var metric in point.Metrics)
+                    {
+                        _csvWriter?.WriteLine(
+                            $"{point.Timestamp:o}," +
+                            $"{metric.Key}," +
+                            $"{metric.Value.ToString(CultureInfo.InvariantCulture)}"
+                        );
+                    }
+                    _csvWriter?.Flush();
+                }
+                catch (Exception ex)
+                {
+                    Log($"CSV write error: {ex.Message}");
+                }
+            }
+        }
         private void MainWindow_Closing(object? sender, CancelEventArgs e)
         {
             Log("Shutting down...");
@@ -408,7 +450,8 @@ namespace WPFViewer
                     var args = ParseArgsWithTypes(ServerArguments);
                     _serverEditorWindow = new ArgumentEditorWindow(args, SendCommandToServer)
                     {
-                        Title = "Server Arguments"
+                        Title = "Server Arguments",
+                        Owner = this
                     };
                     _serverEditorWindow.Closed += (_, _) => _serverEditorWindow = null;
                     _serverEditorWindow.Show();
@@ -428,7 +471,8 @@ namespace WPFViewer
                     var args = ParseArgsWithTypes(ClientArguments);
                     _clientEditorWindow = new ArgumentEditorWindow(args, SendCommandToClient)
                     {
-                        Title = "Client Arguments"
+                        Title = "Client Arguments",
+                        Owner = this
                     };
                     _clientEditorWindow.Closed += (_, _) => _clientEditorWindow = null;
                     _clientEditorWindow.Show();
@@ -501,7 +545,7 @@ namespace WPFViewer
                                 Timestamp = DateTime.UtcNow,
                                 Metrics = stat.metrics
                             };
-
+                            AppendToCsv(point); // Сохраняем в CSV
                             Points.Add(point);
                             if (Points.Count > 200) Points.RemoveAt(0);
 
@@ -674,6 +718,7 @@ namespace WPFViewer
                     }
 
                     var args = ParseArgs(ServerArguments);
+                    serverMode = args["mode"];
                     var argLine = string.Join(" ", args.Select(kvp => $"--{kvp.Key}={kvp.Value}"));
 
                     var startInfo = new ProcessStartInfo

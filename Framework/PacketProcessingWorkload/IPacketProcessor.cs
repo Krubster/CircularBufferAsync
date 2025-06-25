@@ -10,6 +10,6 @@ namespace NETwork
         /// <param name="inBuffer">Буфер с полными пакетами</param>
         /// <param name="senderId">ID отправителя</param>
         /// <returns>Обработанный выходной буфер</returns>
-        int ProcessBuffer(ReadOnlySpan<byte> inBuffer, NetState state);
+        (int, List<uint>) ProcessBuffer(ReadOnlySpan<byte> inBuffer, NetState state);
     }
 }

@@ -4,16 +4,17 @@ using System.Runtime.InteropServices;
 using NETwork.Buffers;
 using Framework.Network;
 using NETwork.ConnectionProcessors;
+using System.Diagnostics;
 
 namespace NETwork
 {
-    public delegate void PacketHandler(ReadOnlySpan<byte> packet, NetState state);
+    public delegate void PacketHandler(Span<byte> packet, NetState state);
 
     public class NetState : IDisposable
     {
         public Socket Socket { get; }
         public GCHandle Handle { get; }
-        public int Id { get; } = Interlocked.Increment(ref _nextId);
+        public int Id { get; set; } 
 
         public Pipe BufferPipe { get; set; }
 
@@ -32,6 +33,7 @@ namespace NETwork
 
         public NetState(Socket socket, IConnectionProcessor server)
         {
+            Id = _nextId++;
             Server = server;
             Socket = socket;
             BufferPipe = new Pipe(4 * 1024);
@@ -55,6 +57,8 @@ namespace NETwork
 
         public void ReceiveFromSocket()
         {
+            if (Socket.Available == 0) return;
+            
             var writer = BufferPipe.Writer;
             var buffer = writer.AvailableToWrite();
             if (buffer.Length == 0 || writer.IsClosed) return;
@@ -88,6 +92,7 @@ namespace NETwork
 
         public int HandleReceive(PacketHandler handler)
         {
+
             ReceiveFromSocket();
 
             var reader = BufferPipe.Reader;
@@ -95,6 +100,7 @@ namespace NETwork
             while (true)
             {
                 var span = reader.AvailableToRead();
+
                 if (span.Length < 2)
                     break;
 
@@ -118,6 +124,7 @@ namespace NETwork
                 totalReceived += 2 + len;
                 reader.Advance((uint)(2 + len));
             }
+
             return totalReceived;
         }
 
@@ -158,7 +165,7 @@ namespace NETwork
 
                     if (!_flushQueued)
                     {
-                        Server.FlushPending.Enqueue(this);
+                        Server.FlushPending.Writer.TryWrite(this);
                         _flushQueued = true;
                     }
                 }
@@ -174,7 +181,7 @@ namespace NETwork
                 {
                     if (!_flushQueued)
                     {
-                        Server.FlushPending.Enqueue(this);
+                        Server.FlushPending.Writer.TryWrite(this);
                         _flushQueued = true;
                     }
                 }
@@ -183,6 +190,15 @@ namespace NETwork
                     Console.WriteLine($"[NetState] Exception during Send: {ex}");
                     Dispose();
                 }
+            }
+        }
+
+        public void FlushSet()
+        {
+            if (!_flushQueued)
+            {
+                Server.FlushPending.Writer.TryWrite(this);
+                _flushQueued = true;
             }
         }
     }

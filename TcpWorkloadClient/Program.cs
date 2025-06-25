@@ -49,7 +49,7 @@ namespace TcpWorkloadClientWorker
                 {
                     Connections = connections,
                     InfiniteTraffic = infinite,
-                    SendInterval = TimeSpan.FromMilliseconds(sendInterval),
+                    LoopDelay = TimeSpan.FromMilliseconds(sendInterval),
                     PacketSizeGenerator = () =>
                     {
                         int size;
@@ -64,7 +64,7 @@ namespace TcpWorkloadClientWorker
                 profile = LoadProfile.FromHistogramFile(profilePath);
                 profile.Connections = connections;
                 profile.InfiniteTraffic = infinite;
-                profile.SendInterval = TimeSpan.FromMilliseconds(sendInterval);
+                profile.LoopDelay = TimeSpan.FromMilliseconds(sendInterval);
             }
             else
             {
@@ -72,7 +72,7 @@ namespace TcpWorkloadClientWorker
                 {
                     Connections = connections,
                     InfiniteTraffic = infinite,
-                    SendInterval = TimeSpan.FromMilliseconds(sendInterval),
+                    LoopDelay = TimeSpan.FromMilliseconds(sendInterval),
                     PacketSizeGenerator = () => Random.Shared.Next(lowEnd, highEnd)
                 };
             }

@@ -24,28 +24,32 @@ public class TcpWorkloadServer
     {
         _listener = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp)
         {
-            NoDelay = true
+            LingerState = new LingerOption(false, 0),
+            ExclusiveAddressUse = true,
+            NoDelay = true,
+            Blocking = false,
+            SendBufferSize = 64 * 1024,
+            ReceiveBufferSize = 64 * 1024
         };
 
         _listener.Bind(_listenEndPoint);
-        _listener.Listen(128);
-
-        _acceptThread = new Thread(AcceptLoop) { IsBackground = true };
-        _acceptThread.Start();
+        _listener.Listen(256);
+        _ = AcceptLoop();
+       // _acceptThread = new Thread(AcceptLoop) { IsBackground = true };
+       // _acceptThread.Start();
 
         _processor.Start(_token); // Delegate main loop/thread logic to processor
 
         Console.WriteLine($"[Server] Listening on {_listenEndPoint}");
     }
 
-    private void AcceptLoop()
+    private async ValueTask AcceptLoop()
     {
         while (!_token.IsCancellationRequested)
         {
             try
             {
-                var socket = _listener!.Accept();
-                socket.NoDelay = true;
+                var socket = await _listener.AcceptAsync(_token);
                 _processor.Add(socket); // Pass socket to processor
             }
             catch (SocketException se) when (se.SocketErrorCode == SocketError.Interrupted)

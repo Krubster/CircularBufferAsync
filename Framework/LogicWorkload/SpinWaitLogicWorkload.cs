@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
@@ -11,22 +12,28 @@ namespace Framework.Workloads
     {
         public int Workload
         {
-            get => _cpuWork;
+            get => _workUs;
             set
             {
-                _cpuWork = value;
+                _workUs = value;
             }
         }
-        private int _cpuWork;
-        public SpinWaitLogicWorkload(int cpuWork = 1000)
+        private int _workUs;
+        public SpinWaitLogicWorkload(int workUs = 1000)
         {
-            _cpuWork = cpuWork;
+            _workUs = workUs;
         }
 
         public void Execute()
         {
-            // Just spin cpu thread
-            Thread.SpinWait(_cpuWork);
+            long ticksPerMicrosecond = Stopwatch.Frequency / 1_000_000;
+            long targetTicks = _workUs * ticksPerMicrosecond;
+
+            long start = Stopwatch.GetTimestamp();
+            while (Stopwatch.GetTimestamp() - start < targetTicks)
+            {
+                Thread.SpinWait(10); // активное ожидание
+            }
         }
     }
 }

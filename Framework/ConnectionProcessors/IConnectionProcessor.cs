@@ -1,5 +1,6 @@
 ﻿using System.Collections.Concurrent;
 using System.Net.Sockets;
+using System.Threading.Channels;
 
 namespace NETwork.ConnectionProcessors
 {
@@ -10,6 +11,6 @@ namespace NETwork.ConnectionProcessors
         void Stop();
 
         void SetRuntime(string key, string value);
-        ConcurrentQueue<NetState> FlushPending { get; }
+        Channel<NetState> FlushPending { get; }
     }
 }

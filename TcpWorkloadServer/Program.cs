@@ -6,6 +6,8 @@ using System.Net;
 using System.Diagnostics;
 using Framework.StatsCollectors;
 using System.Net.Sockets;
+using System.Diagnostics.Tracing;
+using Framework.Metrics;
 
 namespace TcpWorkloadServerWorker
 {
@@ -16,15 +18,15 @@ namespace TcpWorkloadServerWorker
         {
             long startTicks = Stopwatch.GetTimestamp();
             var runDuration = TimeSpan.FromSeconds(30);
-            bool infinite = false;
+            bool infinite = true;
             var mode = ServerMode.Triplex;
             var port = 5000;
             var workloadType = WorkloadType.Cpu;
-            var cpuLoad = 10;
-            var backgroundWorkload = 10000;
+            var cpuLoad = 330;
+            var backgroundWorkload = 30;
             var sendChance = 0.3;
-            var lowBorder = 40;
-            var highBorder = 400;
+            var lowBorder = 30;
+            var highBorder = 40;
             string? profilePath = null;
 
             foreach (var arg in args)
@@ -52,14 +54,12 @@ namespace TcpWorkloadServerWorker
                 else if (arg.StartsWith("--duration="))
                     runDuration = TimeSpan.FromSeconds(int.Parse(arg.Split('=')[1]));
             }
+            var listener = new GCEventListener(); // for GC metrics
 
             var inBufferFactory = new PagingBufferFactory();
             var outBufferFactory = new PagingBufferFactory();
             var workloadFactory = new DefaultWorkloadFactory();
             var workload = workloadFactory.Create(workloadType, profilePath, cpuLoad);
-
-            //var statsCollector = new FileStatsCollector(AppContext.BaseDirectory + "\\stats.csv", mode.ToString(),
-              //  workload.GetType().Name);
 
             var statsCollector = new GraphingStatsCollector(AppContext.BaseDirectory + "\\stats_log.csv");
             statsCollector.EnableLiveBroadcast(12345);

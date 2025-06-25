@@ -7,15 +7,10 @@ using System.Threading.Tasks;
 
 namespace Framework.Workloads
 {
-    public class SimpleServerPacketPattern : IServerTrafficPattern
+    public class EchoServerPacketPattern : IServerTrafficPattern
     {
         private static readonly Random _random = new Random();
-        public double SendChance { get => _chance;
-            set
-            {
-                _chance = value;
-            }
-        }
+
         public int HighEnd
         {
             get => _highEnd;
@@ -34,11 +29,9 @@ namespace Framework.Workloads
         }
 
         private int _lowEnd, _highEnd;
-        private double _chance;
 
-        public SimpleServerPacketPattern(double chance = 0.4, int loweEnd = 30, int highEnd = 40)
+        public EchoServerPacketPattern(int loweEnd = 40, int highEnd = 250)
         {
-            _chance = chance;
             _lowEnd = loweEnd;
             _highEnd = highEnd;
         }
@@ -46,12 +39,7 @@ namespace Framework.Workloads
 
         public int? GetNextPayloadLength(NetState state)
         {
-            if (_random.NextDouble() < _chance)
-            {
-                return _random.Next(_lowEnd, _highEnd);
-            }
-
-            return null;
+            return _random.Next(_lowEnd, _highEnd);
         }
     }
 }

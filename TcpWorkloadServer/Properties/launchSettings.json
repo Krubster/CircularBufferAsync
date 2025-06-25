@@ -1,0 +1,8 @@
+{
+  "profiles": {
+    "TcpWorkloadServer": {
+      "commandName": "Project",
+      "commandLineArgs": "--infinite"
+    }
+  }
+}
