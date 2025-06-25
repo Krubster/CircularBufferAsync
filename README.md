@@ -44,7 +44,7 @@ It includes:
 - **Backpressure:** `ThreadPidBackPressure` to limit inbound traffic based on target processing time;
 - **Use case:** balanced load between network and logic execution;
   
-### 🔹 Triplex (Twriple-threaded Model)
+### 🔹 Triplex (Triple-threaded Model)
 
 - **Threads:** `NetThread`, `LogicThread`, `WriteThread`;
 - **Buffering:** same as Async; additional flush queue for sending thread;
@@ -61,10 +61,8 @@ Each server implementation collects high-resolution metrics in real-time:
 - **Latency:** computed using timestamp fields in payloads;
 - **Backlog:** difference between bytes written and bytes sent;
 - **CPU usage:** measured in cycles per second for each thread;
-- **Thread activity:** Active time in ticks and percentage, Sleep/yield metrics, thread contention;
-- **GC metrics:** total pause time, generation-specific stats;
-- **Buffer usage:** current occupancy in Pipe or PagingBuffer;
-- **Cold tick workload:** background logic execution independent of network events;
+- **Thread activity:** Active time in ticks and percentage, Sleep/yield metrics;
+- **GC metrics:** generation-specific stats;
 
 Metrics are streamed to WPFViewer or saved to log files for post-analysis.
 
