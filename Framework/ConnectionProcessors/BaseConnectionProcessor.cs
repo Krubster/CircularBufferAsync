@@ -16,7 +16,6 @@ namespace Framework.ConnectionProcessors
     {
         public Channel<NetState> FlushPending => _flushPending;
         protected readonly Channel<NetState> _flushPending = Channel.CreateUnbounded<NetState>();
-        protected readonly Channel<NetState> _flushThrottled = Channel.CreateUnbounded<NetState>();
         protected readonly Channel<Socket> _newConnections = Channel.CreateUnbounded<Socket>();
 
         protected readonly IPacketProcessor Processor;
@@ -48,8 +47,8 @@ namespace Framework.ConnectionProcessors
         public virtual void Add(Socket socket)
         {
             _newConnections.Writer.TryWrite(socket);
-            socket.NoDelay = true; // отключает Nagle — если нужен низкий latency
-            socket.SendBufferSize = 65536; // или выше — в зависимости от нагрузки
+            socket.NoDelay = true;
+            socket.SendBufferSize = 65536;
         }
 
         public abstract void Start(CancellationToken token);

@@ -54,22 +54,29 @@ namespace TcpTestFramework
 
         private async Task RunConnection(int id, CancellationToken ct)
         {
-
             Socket socket = await ConnectWithRetryAsync(id, _serverEndPoint, ct);
             if (socket == null)
                 return;
+
+            // Получение
             _ = Task.Run(async () =>
             {
-                var recvBuffer = new byte[1024*16];
+                var recvBuffer = new byte[1024 * 16];
                 try
                 {
                     while (!ct.IsCancellationRequested)
                     {
+                        if (_profile.SimulateReadLatencyMs > 0)
+                        {
+                            int jitter = Random.Shared.Next(-_profile.ReadJitterMs, _profile.ReadJitterMs + 1);
+                            await Task.Delay(_profile.SimulateReadLatencyMs + jitter, ct);
+                        }
+
                         int read = await socket.ReceiveAsync(recvBuffer, SocketFlags.None, ct);
                         if (read == 0)
                             break; // socket closed
 
-                        // optionally: обработка ответа, например подсчёт/лог
+                        // Здесь можно логировать / считать
                     }
                 }
                 catch (Exception ex)
@@ -79,7 +86,8 @@ namespace TcpTestFramework
             });
 
             byte[] sendBuffer = new byte[8192];
-            int receiveBufferCount = 0, totalSent = 0;
+            int totalSent = 0;
+
             try
             {
                 await Task.Delay(Random.Shared.Next((int)_profile.LoopDelay.Value.TotalMilliseconds), ct);
@@ -106,6 +114,16 @@ namespace TcpTestFramework
                         Random.Shared.NextBytes(sendBuffer.AsSpan(2, len));
                         int toSend = len + 2;
 
+                        if (_profile.SimulateSendLatencyMs > 0)
+                        {
+                            int jitter = Random.Shared.Next(-_profile.SendJitterMs, _profile.SendJitterMs + 1);
+                            await Task.Delay(_profile.SimulateSendLatencyMs + jitter, ct);
+                        }
+
+                        // // Опционально: имитация потери пакетов
+                        // if (Random.Shared.NextDouble() < _profile.DropRate)
+                        //     continue;
+
                         await socket.SendAsync(sendBuffer.AsMemory(0, toSend), SocketFlags.None, ct);
                         totalSent += toSend;
 
@@ -122,32 +140,22 @@ namespace TcpTestFramework
                     }
                 }
             }
-            catch (SocketException ex)
+            catch (Exception ex) when (ex is SocketException or OperationCanceledException)
             {
-                Console.WriteLine($"[Client #{id}] SocketException ({ex.ErrorCode}): {ex.SocketErrorCode}");
-            }
-            catch (OperationCanceledException ex)
-            {
-                Console.WriteLine($"Client exception: {ex}");
+                Console.WriteLine($"[Client #{id}] Exception: {ex.Message}");
             }
             finally
             {
                 try
                 {
                     if (socket.Connected)
-                    {
                         socket.Shutdown(SocketShutdown.Both);
-                    }
 
-                    socket.Close(); // безопаснее, чем Dispose()
+                    socket.Close();
                 }
-                catch (SocketException ex)
+                catch (Exception ex)
                 {
-                    Console.WriteLine($"[Client #{id}] SocketException ({ex.ErrorCode}): {ex.SocketErrorCode}");
-                }
-                catch(Exception ex)
-                {
-                    Console.WriteLine($"[Client #{id}] Exception during shutdown: {ex}");
+                    Console.WriteLine($"[Client #{id}] Shutdown exception: {ex}");
                 }
 
                 Console.WriteLine($"[Client #{id}] Connection closed.");

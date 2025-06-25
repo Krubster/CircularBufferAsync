@@ -112,30 +112,6 @@ namespace NETwork.Buffers
 
         public ReadState Read(out ReadOnlySpan<byte> span)
         {
-            /*  BufferLink? selected = null;
-              int minAge = int.MaxValue;
-
-              var node = _start;
-              while (node != null)
-              {
-                  if (node.Available() > 0 && node.Age < minAge)
-                  {
-                      minAge = node.Age;
-                      selected = node;
-                  }
-                  node = node.Next;
-              }
-
-              if (selected == null)
-              {
-                  span = default;
-                  _lastReadNode = null;
-                  return ReadState.NoData;
-              }
-
-              _lastReadNode = selected;
-              span = selected.Buffer.AsSpan(selected.StartOffset, selected.Available());
-              return ReadState.Success;*/
             // сдвигаемся вперёд, пока в голове очереди пустые страницы
             while (_readyPages.TryPeek(out var p) && p.Available() == 0)
                 _readyPages.TryDequeue(out _);   // отбросили и смотрим дальше

@@ -198,12 +198,8 @@ public class TriplexConnectionProcessor : BaseConnectionProcessor, IThreadStats
                         state.Send(writer.Span, (int)(packetLen + 2));
                         _bytesWritten += (ulong)(packetLen + 2);
                     }
+                    _sendWaiter.Set();
                 }
-            }
-
-            if (_flushPending.Reader.Count > 0)
-            {
-                _sendWaiter.Set();
             }
 
             RunColdTickIfDue();

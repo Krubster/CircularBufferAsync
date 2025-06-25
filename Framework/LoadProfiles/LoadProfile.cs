@@ -4,6 +4,11 @@ namespace NETwork.LoadProfiles
 {
     public class LoadProfile
     {
+        public int SimulateSendLatencyMs { get; set; } = 50;
+        public int SendJitterMs { get; set; } = 5;
+        public int SimulateReadLatencyMs { get; set; } = 30;
+        public int ReadJitterMs { get; set; } = 10;
+        // public double DropRate { get; set; } = 0.0; // 0.1 = 10% потерь
         public int LowEnd { get; set; } = 20;
         public int HighEnd { get; set; } = 150;
         public Func<int> PacketSizeGenerator { get; set; } = () => Random.Shared.Next(20, 50);
